@@ -59,6 +59,7 @@
     <Compile Include="..\common\Main.cs">
       <Link>Main.cs</Link>
     </Compile>
+    <Compile Include="Scientist.cs" />
     <Compile Include="Program.cs" />
   </ItemGroup>
   <ItemGroup>
