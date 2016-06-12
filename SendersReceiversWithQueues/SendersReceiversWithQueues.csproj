@@ -60,6 +60,7 @@
       <Link>Main.cs</Link>
     </Compile>
     <Compile Include="Program.cs" />
+    <Compile Include="Scientist.cs" />
   </ItemGroup>
   <ItemGroup>
     <Folder Include="Properties\" />

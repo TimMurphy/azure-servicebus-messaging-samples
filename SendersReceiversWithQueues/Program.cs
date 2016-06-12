@@ -15,20 +15,32 @@
 //   See the Apache License, Version 2.0 for the specific language
 //   governing permissions and limitations under the License. 
 
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.ServiceBus;
+using Microsoft.ServiceBus.Messaging;
+
 namespace MessagingSamples
 {
-    using System;
-    using System.IO;
-    using System.Text;
-    using System.Threading;
-    using System.Threading.Tasks;
-    using Microsoft.ServiceBus;
-    using Microsoft.ServiceBus.Messaging;
-    using Newtonsoft.Json;
-
     public class Program : IBasicQueueSendReceiveSample
     {
-        async Task SendMessagesAsync(string namespaceAddress, string queueName, string sendToken)
+        public async Task Run(string namespaceAddress, string queueName, string sendToken, string receiveToken)
+        {
+            Console.WriteLine("Press any key to exit the scenario");
+
+            var cts = new CancellationTokenSource();
+
+            var sendTask = SendMessagesAsync(namespaceAddress, queueName, sendToken);
+            var receiveTask = ReceiveMessagesAsync(namespaceAddress, queueName, receiveToken, cts.Token);
+
+            Console.ReadKey();
+            cts.Cancel();
+
+            await Task.WhenAll(sendTask, receiveTask);
+        }
+
+        private static async Task SendMessagesAsync(string namespaceAddress, string queueName, string sendToken)
         {
             var senderFactory = MessagingFactory.Create(
                 namespaceAddress,
@@ -38,33 +50,32 @@ namespace MessagingSamples
                     TokenProvider = TokenProvider.CreateSharedAccessSignatureTokenProvider(sendToken)
                 });
             var sender = await senderFactory.CreateMessageSenderAsync(queueName);
-            
-            dynamic data = new[]
+
+            var scientists = new[]
             {
-                new {name = "Einstein", firstName = "Albert"},
-                new {name = "Heisenberg", firstName = "Werner"},
-                new {name = "Curie", firstName = "Marie"},
-                new {name = "Hawking", firstName = "Steven"},
-                new {name = "Newton", firstName = "Isaac"},
-                new {name = "Bohr", firstName = "Niels"},
-                new {name = "Faraday", firstName = "Michael"},
-                new {name = "Galilei", firstName = "Galileo"},
-                new {name = "Kepler", firstName = "Johannes"},
-                new {name = "Kopernikus", firstName = "Nikolaus"}
+                new Scientist {Name = "Einstein", FirstName = "Albert"},
+                new Scientist {Name = "Heisenberg", FirstName = "Werner"},
+                new Scientist {Name = "Curie", FirstName = "Marie"},
+                new Scientist {Name = "Hawking", FirstName = "Steven"},
+                new Scientist {Name = "Newton", FirstName = "Isaac"},
+                new Scientist {Name = "Bohr", FirstName = "Niels"},
+                new Scientist {Name = "Faraday", FirstName = "Michael"},
+                new Scientist {Name = "Galilei", FirstName = "Galileo"},
+                new Scientist {Name = "Kepler", FirstName = "Johannes"},
+                new Scientist {Name = "Kopernikus", FirstName = "Nikolaus"}
             };
 
-
-            for (int i = 0; i < data.Length; i++)
+            for (var i = 0; i < scientists.Length; i++)
             {
-                var message = new BrokeredMessage(new MemoryStream(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(data[i]))))
-                {
-                    ContentType = "application/json",
-                    Label = "Scientist",
-                    MessageId = i.ToString(),
-                    TimeToLive = TimeSpan.FromMinutes(2)
-                };
+                var message =
+                    new BrokeredMessage(scientists[i])
+                    {
+                        ContentType = typeof(Scientist).FullName,
+                        MessageId = $"{i} / {Guid.NewGuid()}"
+                    };
 
                 await sender.SendAsync(message);
+
                 lock (Console.Out)
                 {
                     Console.ForegroundColor = ConsoleColor.Yellow;
@@ -74,9 +85,10 @@ namespace MessagingSamples
             }
         }
 
-        async Task ReceiveMessagesAsync(string namespaceAddress, string queueName, string receiveToken, CancellationToken cancellationToken)
+        private static async Task ReceiveMessagesAsync(string namespaceAddress, string queueName, string receiveToken,
+            CancellationToken cancellationToken)
         {
-           var receiverFactory = MessagingFactory.Create(
+            var receiverFactory = MessagingFactory.Create(
                 namespaceAddress,
                 new MessagingFactorySettings
                 {
@@ -85,9 +97,9 @@ namespace MessagingSamples
                 });
 
             var receiver = await receiverFactory.CreateMessageReceiverAsync(queueName, ReceiveMode.PeekLock);
-
-
+            
             var doneReceiving = new TaskCompletionSource<bool>();
+
             // close the receiver and factory when the CancellationToken fires 
             cancellationToken.Register(
                 async () =>
@@ -101,14 +113,9 @@ namespace MessagingSamples
             receiver.OnMessageAsync(
                 async message =>
                 {
-                    if (message.Label != null &&
-                        message.ContentType != null &&
-                        message.Label.Equals("Scientist", StringComparison.InvariantCultureIgnoreCase) &&
-                        message.ContentType.Equals("application/json", StringComparison.InvariantCultureIgnoreCase))
+                    if (message.ContentType != null && message.ContentType.Equals(typeof(Scientist).FullName))
                     {
-                        var body = message.GetBody<Stream>();
-
-                        dynamic scientist = JsonConvert.DeserializeObject(new StreamReader(body, true).ReadToEnd());
+                        var scientist = message.GetBody<Scientist>();
 
                         lock (Console.Out)
                         {
@@ -122,8 +129,8 @@ namespace MessagingSamples
                                 message.ContentType,
                                 message.Size,
                                 message.ExpiresAtUtc,
-                                scientist.firstName,
-                                scientist.name);
+                                scientist.FirstName,
+                                scientist.Name);
                             Console.ResetColor();
                         }
                         await message.CompleteAsync();
@@ -136,22 +143,6 @@ namespace MessagingSamples
                 new OnMessageOptions {AutoComplete = false, MaxConcurrentCalls = 1});
 
             await doneReceiving.Task;
-        }
-
-
-        public async Task Run(string namespaceAddress, string queueName, string sendToken, string receiveToken)
-        {
-            Console.WriteLine("Press any key to exit the scenario");
-
-            var cts = new CancellationTokenSource();
-
-            var sendTask = this.SendMessagesAsync(namespaceAddress, queueName, sendToken);
-            var receiveTask = this.ReceiveMessagesAsync(namespaceAddress, queueName, receiveToken, cts.Token);
-
-            Console.ReadKey();
-            cts.Cancel();
-
-            await Task.WhenAll(sendTask, receiveTask);
         }
     }
 }
